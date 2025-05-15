@@ -1,9 +1,11 @@
+import 'dart:convert'; // For json encode/decode
 import 'package:flutter/material.dart';
-import 'package:fyp_voice/repo.dart'; // API service wrapper
-import 'package:fyp_voice/res/chat_bubble.dart'; // ChatBubble widget
+import 'package:fyp_voice/repo.dart'; // Your API service wrapper
+import 'package:fyp_voice/res/chat_bubble.dart'; // Your ChatBubble widget
 import 'package:intl/intl.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // For local storage
 import '../main.dart'; // For themeNotifier
 
 class VoiceAssistantScreen extends StatefulWidget {
@@ -14,9 +16,10 @@ class VoiceAssistantScreen extends StatefulWidget {
 class _VoiceAssistantScreenState extends State<VoiceAssistantScreen> {
   final ScrollController _scrollController = ScrollController();
   final VoiceAssistantService _voiceAssistantService = VoiceAssistantService();
+
   late stt.SpeechToText _speech;
   bool _isListening = false;
-  bool _hasHandledSpeech = false; // ✅ To prevent duplicate replies
+  bool _hasHandledSpeech = false; // Prevent duplicate replies
   String _spokenText = "";
   List<Map<String, String>> _chatMessages = [];
 
@@ -25,6 +28,7 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen> {
     super.initState();
     _speech = stt.SpeechToText();
     _checkAndRequestPermissions();
+    _loadChatMessages();
   }
 
   Future<bool> _checkAndRequestPermissions() async {
@@ -33,6 +37,29 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen> {
       status = await Permission.microphone.request();
     }
     return status.isGranted;
+  }
+
+  // Load saved chat messages from SharedPreferences
+  Future<void> _loadChatMessages() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    String? savedChats = prefs.getString('chatMessages');
+    if (savedChats != null) {
+      List<dynamic> decoded = jsonDecode(savedChats);
+      setState(() {
+        _chatMessages =
+            decoded
+                .map<Map<String, String>>((e) => Map<String, String>.from(e))
+                .toList();
+      });
+      _scrollToBottom();
+    }
+  }
+
+  // Save chat messages to SharedPreferences
+  Future<void> _saveChatMessages() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    String encoded = jsonEncode(_chatMessages);
+    await prefs.setString('chatMessages', encoded);
   }
 
   void _listen() async {
@@ -44,7 +71,7 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen> {
             if ((val == 'done' || val == 'notListening') &&
                 !_hasHandledSpeech &&
                 _spokenText.isNotEmpty) {
-              _hasHandledSpeech = true; // ✅ Prevent multiple predictions
+              _hasHandledSpeech = true; // Prevent multiple predictions
               setState(() => _isListening = false);
               _updateLastUserMessage(_spokenText);
               await _predictIntent(_spokenText);
@@ -63,7 +90,7 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen> {
           setState(() {
             _isListening = true;
             _spokenText = "";
-            _hasHandledSpeech = false; // ✅ Reset
+            _hasHandledSpeech = false; // Reset
             _addChatMessage('user', '', isRecording: true);
           });
 
@@ -81,7 +108,6 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen> {
     } else {
       setState(() => _isListening = false);
       _speech.stop();
-      // ❌ No prediction here
     }
   }
 
@@ -91,6 +117,7 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen> {
         _chatMessages[_chatMessages.length - 1]['message'] = newMessage;
         _chatMessages[_chatMessages.length - 1]['isRecording'] = 'false';
       });
+      _saveChatMessages();
     }
   }
 
@@ -108,6 +135,22 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen> {
       });
       _scrollToBottom();
     });
+    _saveChatMessages();
+  }
+
+  // Save reminder to SharedPreferences
+  Future<void> _saveReminder(String reminderText) async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    List<String> existingReminders = prefs.getStringList('reminders') ?? [];
+    // Save reminder with timestamp
+    final formattedTime = DateFormat('EEEE, h:mm a').format(DateTime.now());
+    final newReminder = jsonEncode({
+      'title': reminderText,
+      'time': formattedTime,
+    });
+    existingReminders.add(newReminder);
+    await prefs.setStringList('reminders', existingReminders);
+    debugPrint("📌 Reminder saved: $reminderText");
   }
 
   Future<void> _predictIntent(String input) async {
@@ -121,6 +164,10 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen> {
         );
       } else {
         _addChatMessage('assistant', response['response'] ?? "");
+        // Save reminder if intent is reminder
+        if (response['intent']?.toLowerCase() == 'reminder') {
+          await _saveReminder(input);
+        }
       }
     } catch (e) {
       _addChatMessage('assistant', "Error: $e");

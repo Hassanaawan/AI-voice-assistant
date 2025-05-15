@@ -60,26 +60,38 @@ class ChatBubble extends StatelessWidget {
                 bottomLeft: Radius.circular(isUser ? 16 : 0),
                 bottomRight: Radius.circular(isUser ? 0 : 16),
               ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  isRecording ? "Recording..." : message,
-                  style: TextStyle(
-                    color: textColor,
-                    fontSize: 16,
-                    fontStyle:
-                        isRecording ? FontStyle.italic : FontStyle.normal,
-                  ),
-                ),
-                SizedBox(height: 4),
-                Text(
-                  time,
-                  style: TextStyle(fontSize: 10, color: secondaryTextColor),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 3,
+                  offset: Offset(1, 2),
                 ),
               ],
             ),
+            child:
+                isRecording
+                    ? Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircularProgressIndicator(strokeWidth: 2),
+                        SizedBox(width: 8),
+                        Text(
+                          message,
+                          style: TextStyle(color: textColor, fontSize: 16),
+                        ),
+                      ],
+                    )
+                    : Text(
+                      message,
+                      style: TextStyle(color: textColor, fontSize: 16),
+                    ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8, left: 8, right: 8),
+          child: Text(
+            time,
+            style: TextStyle(color: secondaryTextColor, fontSize: 10),
           ),
         ),
       ],

@@ -1,8 +1,15 @@
 import 'dart:convert';
-
 import 'package:flutter/material.dart';
+import 'package:fyp_voice/reminderHelper.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+class Reminder {
+  final String title;
+  final String time;
+
+  Reminder({required this.title, required this.time});
+}
 
 class ReminderListScreen extends StatefulWidget {
   const ReminderListScreen({super.key});
@@ -24,102 +31,93 @@ class _ReminderListScreenState extends State<ReminderListScreen> {
     final prefs = await SharedPreferences.getInstance();
     final reminderList = prefs.getStringList('reminders') ?? [];
 
+    final loadedReminders = <Reminder>[];
+
+    for (final r in reminderList) {
+      try {
+        final map = jsonDecode(r);
+        if (map is Map<String, dynamic> &&
+            map.containsKey('title') &&
+            map.containsKey('time')) {
+          loadedReminders.add(Reminder(title: map['title'], time: map['time']));
+        }
+      } catch (e) {
+        debugPrint("Error decoding reminder: $e");
+      }
+    }
+
     setState(() {
-      _reminders.clear();
-      _reminders.addAll(
-        reminderList.map((r) {
-          final map = jsonDecode(r);
-          return Reminder(title: map['title'], time: map['time']);
-        }).toList(),
-      );
+      _reminders
+        ..clear()
+        ..addAll(loadedReminders);
     });
   }
 
-  Future<void> _saveReminders() async {
-    final prefs = await SharedPreferences.getInstance();
-    final reminderList =
-        _reminders
-            .map((r) => jsonEncode({'title': r.title, 'time': r.time}))
-            .toList();
-    await prefs.setStringList('reminders', reminderList);
-  }
+  void _addOrEditReminder({Reminder? reminder, int? index}) {
+    final titleController = TextEditingController(text: reminder?.title ?? "");
 
-  void _addReminder() async {
-    final newReminder = await _showReminderDialog();
-    if (newReminder != null) {
-      setState(() {
-        _reminders.add(newReminder);
-      });
-      _saveReminders();
-    }
-  }
-
-  void _editReminder(int index) async {
-    final updatedReminder = await _showReminderDialog(
-      reminder: _reminders[index],
-    );
-    if (updatedReminder != null) {
-      setState(() {
-        _reminders[index] = updatedReminder;
-      });
-      _saveReminders();
-    }
-  }
-
-  void _deleteReminder(int index) {
-    setState(() {
-      _reminders.removeAt(index);
-    });
-    _saveReminders();
-  }
-
-  Future<Reminder?> _showReminderDialog({Reminder? reminder}) {
-    final TextEditingController _titleController = TextEditingController(
-      text: reminder?.title ?? '',
-    );
-
-    return showDialog<Reminder>(
+    showDialog(
       context: context,
-      builder: (context) {
+      builder: (_) {
         return AlertDialog(
-          backgroundColor: Theme.of(context).dialogBackgroundColor,
-          title: Text(
-            reminder == null ? 'Add Reminder' : 'Edit Reminder',
-            style: TextStyle(
-              color: Theme.of(context).textTheme.bodyMedium?.color,
-            ),
-          ),
+          title: Text(reminder == null ? "Add Reminder" : "Edit Reminder"),
           content: TextField(
-            controller: _titleController,
-            style: TextStyle(
-              color: Theme.of(context).textTheme.bodyMedium?.color,
-            ),
-            decoration: InputDecoration(
-              hintText: 'Enter reminder title',
-              hintStyle: const TextStyle(color: Colors.grey),
-            ),
+            controller: titleController,
+            autofocus: true,
+            decoration: InputDecoration(hintText: "Reminder text"),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+              child: const Text("Cancel"),
             ),
-            TextButton(
+            ElevatedButton(
               onPressed: () {
-                final title = _titleController.text.trim();
-                if (title.isNotEmpty) {
-                  final time = DateFormat(
-                    'EEEE, h:mm a',
-                  ).format(DateTime.now());
-                  Navigator.pop(context, Reminder(title: title, time: time));
-                }
+                final text = titleController.text.trim();
+                if (text.isEmpty) return;
+
+                setState(() {
+                  final now = DateFormat('EEEE, h:mm a').format(DateTime.now());
+                  final newReminder = Reminder(title: text, time: now);
+
+                  if (index != null) {
+                    _reminders[index] = newReminder;
+                  } else {
+                    _reminders.add(newReminder);
+                  }
+                });
+                saveReminderExternally;
+                Navigator.pop(context);
               },
-              child: Text(
-                reminder == null ? 'Add' : 'Update',
-                style: TextStyle(
-                  color: Theme.of(context).textTheme.bodyMedium?.color,
-                ),
-              ),
+              child: Text(reminder == null ? "Add" : "Save"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _deleteReminder(int index) {
+    showDialog(
+      context: context,
+      builder: (_) {
+        return AlertDialog(
+          title: const Text("Delete Reminder"),
+          content: const Text("Are you sure you want to delete this reminder?"),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Cancel"),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                setState(() {
+                  _reminders.removeAt(index);
+                });
+                saveReminderExternally;
+                Navigator.pop(context);
+              },
+              child: const Text("Delete"),
             ),
           ],
         );
@@ -129,135 +127,64 @@ class _ReminderListScreenState extends State<ReminderListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final textColor = Theme.of(context).textTheme.bodyMedium?.color;
-
+    final theme = Theme.of(context);
     return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text(
-          'Reminders',
-          style: TextStyle(
-            fontFamily: 'SF Pro Display',
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        backgroundColor: Theme.of(context).appBarTheme.backgroundColor,
+        title: const Text("Reminders"),
         centerTitle: true,
+        elevation: 2,
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: <Widget>[
-            Expanded(
-              child:
-                  _reminders.isEmpty
-                      ? const Center(
-                        child: Text(
-                          'No reminders yet.',
-                          style: TextStyle(color: Colors.grey),
-                        ),
-                      )
-                      : ListView.builder(
-                        itemCount: _reminders.length,
-                        itemBuilder: (context, index) {
-                          final reminder = _reminders[index];
-                          return GestureDetector(
-                            onTap: () => _editReminder(index),
-                            child: Container(
-                              margin: const EdgeInsets.symmetric(vertical: 8.0),
-                              decoration: BoxDecoration(
-                                color: Theme.of(context).cardColor,
-                                borderRadius: BorderRadius.circular(10.0),
-                              ),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16.0,
-                                  vertical: 12.0,
-                                ),
-                                child: Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          reminder.title,
-                                          style: TextStyle(
-                                            color: textColor,
-                                            fontSize: 18.0,
-                                            fontWeight: FontWeight.w600,
-                                            fontFamily: 'SF Pro Text',
-                                          ),
-                                        ),
-                                        Text(
-                                          reminder.time,
-                                          style: const TextStyle(
-                                            color: Colors.grey,
-                                            fontSize: 14.0,
-                                            fontFamily: 'SF Pro Text',
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(
-                                        Icons.delete_outline,
-                                        color: Colors.grey,
-                                      ),
-                                      onPressed: () {
-                                        _deleteReminder(index);
-                                      },
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-            ),
-            const SizedBox(height: 16.0),
-            ElevatedButton(
-              onPressed: _addReminder,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Theme.of(context).primaryColor,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10.0),
+      body:
+          _reminders.isEmpty
+              ? Center(
+                child: Text(
+                  "No reminders yet.",
+                  style: theme.textTheme.bodyLarge,
                 ),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24.0,
-                  vertical: 12.0,
-                ),
-              ),
-              child: const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.add, color: Colors.white),
-                  SizedBox(width: 8.0),
-                  Text(
-                    'Add Reminder',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 18.0,
-                      fontWeight: FontWeight.w600,
-                      fontFamily: 'SF Pro Text',
+              )
+              : ListView.builder(
+                itemCount: _reminders.length,
+                itemBuilder: (_, i) {
+                  final reminder = _reminders[i];
+                  return Card(
+                    margin: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
                     ),
-                  ),
-                ],
+                    child: ListTile(
+                      title: Text(reminder.title),
+                      subtitle: Text(reminder.time),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(
+                              Icons.edit,
+                              color: Colors.blueAccent,
+                            ),
+                            onPressed:
+                                () => _addOrEditReminder(
+                                  reminder: reminder,
+                                  index: i,
+                                ),
+                          ),
+                          IconButton(
+                            icon: const Icon(
+                              Icons.delete,
+                              color: Colors.redAccent,
+                            ),
+                            onPressed: () => _deleteReminder(i),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
               ),
-            ),
-          ],
-        ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => _addOrEditReminder(),
+        child: const Icon(Icons.add),
       ),
     );
   }
-}
-
-class Reminder {
-  String title;
-  String time;
-
-  Reminder({required this.title, required this.time});
 }
