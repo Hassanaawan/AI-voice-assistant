@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:fyp_voice/main.dart'; // For themeNotifier access
+import 'package:fyp_voice/mainscreens/aboutScreen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:fyp_voice/main.dart'; // Access to themeNotifier
 
 class SettingsScreen extends StatefulWidget {
   @override
@@ -7,6 +9,39 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  Future<void> _clearCache() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.clear();
+
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text("Cache cleared successfully!")));
+  }
+
+  void _confirmClearCache() {
+    showDialog(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: Text("Clear Cache"),
+            content: Text("Are you sure you want to clear all app data?"),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text("Cancel"),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  _clearCache();
+                },
+                child: Text("Clear"),
+              ),
+            ],
+          ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDarkMode = themeNotifier.value == ThemeMode.dark;
@@ -35,12 +70,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 Switch(
                   value: isDarkMode,
                   onChanged: (value) {
-                    themeNotifier.value =
-                        value ? ThemeMode.dark : ThemeMode.light;
+                    setState(() {
+                      themeNotifier.value =
+                          value ? ThemeMode.dark : ThemeMode.light;
+                    });
                   },
                 ),
               ],
             ),
+            Divider(),
             ListTile(
               title: Text(
                 'About',
@@ -57,19 +95,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 );
               },
             ),
+            ListTile(
+              title: Text(
+                'Clear Cache',
+                style: TextStyle(
+                  color: Theme.of(context).textTheme.bodyMedium?.color,
+                  fontSize: 18,
+                ),
+              ),
+              trailing: Icon(Icons.delete_forever, color: Colors.red),
+              onTap: _confirmClearCache,
+            ),
           ],
         ),
       ),
-    );
-  }
-}
-
-class AboutScreen extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text('About')),
-      body: Center(child: Text('This is the About screen.')),
     );
   }
 }

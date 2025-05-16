@@ -33,12 +33,26 @@ class _ReminderListScreenState extends State<ReminderListScreen> {
 
     final loadedReminders = <Reminder>[];
 
+    final skipPhrases = [
+      "add reminder",
+      "set a reminder",
+      "remind me",
+      "create reminder",
+      "schedule reminder",
+    ];
+
     for (final r in reminderList) {
       try {
         final map = jsonDecode(r);
         if (map is Map<String, dynamic> &&
             map.containsKey('title') &&
             map.containsKey('time')) {
+          final title = (map['title'] as String).toLowerCase().trim();
+
+          if (skipPhrases.any((phrase) => title == phrase)) {
+            continue; // skip default phrases
+          }
+
           loadedReminders.add(Reminder(title: map['title'], time: map['time']));
         }
       } catch (e) {

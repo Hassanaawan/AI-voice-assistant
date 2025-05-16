@@ -1,12 +1,13 @@
-import 'dart:convert'; // For json encode/decode
+import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:fyp_voice/repo.dart'; // Your API service wrapper
-import 'package:fyp_voice/res/chat_bubble.dart'; // Your ChatBubble widget
+import 'package:fyp_voice/repo.dart';
+import 'package:fyp_voice/res/chat_bubble.dart';
 import 'package:intl/intl.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:permission_handler/permission_handler.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // For local storage
-import '../main.dart'; // For themeNotifier
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_tts/flutter_tts.dart';
+import '../main.dart';
 
 class VoiceAssistantScreen extends StatefulWidget {
   @override
@@ -16,10 +17,11 @@ class VoiceAssistantScreen extends StatefulWidget {
 class _VoiceAssistantScreenState extends State<VoiceAssistantScreen> {
   final ScrollController _scrollController = ScrollController();
   final VoiceAssistantService _voiceAssistantService = VoiceAssistantService();
+  final FlutterTts _flutterTts = FlutterTts();
 
   late stt.SpeechToText _speech;
   bool _isListening = false;
-  bool _hasHandledSpeech = false; // Prevent duplicate replies
+  bool _hasHandledSpeech = false;
   String _spokenText = "";
   List<Map<String, String>> _chatMessages = [];
 
@@ -27,8 +29,29 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen> {
   void initState() {
     super.initState();
     _speech = stt.SpeechToText();
+    _initializeTTS();
     _checkAndRequestPermissions();
     _loadChatMessages();
+  }
+
+  void _initializeTTS() async {
+    await _flutterTts.setLanguage("en-US");
+    await _flutterTts.setSpeechRate(0.9);
+    await _flutterTts.setVolume(1.0);
+    await _flutterTts.setPitch(1.0);
+  }
+
+  Future<void> _speak(String text) async {
+    await _flutterTts.stop(); // ensure previous TTS is cleared
+    await _flutterTts.speak(text);
+  }
+
+  @override
+  void dispose() {
+    _speech.stop();
+    _scrollController.dispose();
+    _flutterTts.stop();
+    super.dispose();
   }
 
   Future<bool> _checkAndRequestPermissions() async {
@@ -39,23 +62,23 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen> {
     return status.isGranted;
   }
 
-  // Load saved chat messages from SharedPreferences
   Future<void> _loadChatMessages() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     String? savedChats = prefs.getString('chatMessages');
     if (savedChats != null) {
       List<dynamic> decoded = jsonDecode(savedChats);
-      setState(() {
-        _chatMessages =
-            decoded
-                .map<Map<String, String>>((e) => Map<String, String>.from(e))
-                .toList();
-      });
-      _scrollToBottom();
+      if (mounted) {
+        setState(() {
+          _chatMessages =
+              decoded
+                  .map<Map<String, String>>((e) => Map<String, String>.from(e))
+                  .toList();
+        });
+        _scrollToBottom();
+      }
     }
   }
 
-  // Save chat messages to SharedPreferences
   Future<void> _saveChatMessages() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     String encoded = jsonEncode(_chatMessages);
@@ -71,52 +94,58 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen> {
             if ((val == 'done' || val == 'notListening') &&
                 !_hasHandledSpeech &&
                 _spokenText.isNotEmpty) {
-              _hasHandledSpeech = true; // Prevent multiple predictions
-              setState(() => _isListening = false);
+              _hasHandledSpeech = true;
+              if (mounted) setState(() => _isListening = false);
               _updateLastUserMessage(_spokenText);
               await _predictIntent(_spokenText);
             }
           },
           onError: (val) {
             debugPrint("Speech Error: ${val.errorMsg}");
-            setState(() {
-              _isListening = false;
-              _spokenText = "";
-            });
+            if (mounted) {
+              setState(() {
+                _isListening = false;
+                _spokenText = "";
+              });
+            }
           },
         );
 
-        if (available) {
+        if (available && mounted) {
           setState(() {
             _isListening = true;
             _spokenText = "";
-            _hasHandledSpeech = false; // Reset
+            _hasHandledSpeech = false;
             _addChatMessage('user', '', isRecording: true);
           });
 
           _speech.listen(
             onResult: (val) {
-              setState(() {
-                _spokenText = val.recognizedWords;
-                _updateLastUserMessage("You said: $_spokenText");
-              });
+              if (mounted) {
+                setState(() {
+                  _spokenText = val.recognizedWords;
+                  _updateLastUserMessage("You said: $_spokenText");
+                });
+              }
             },
             cancelOnError: true,
           );
         }
       }
     } else {
-      setState(() => _isListening = false);
+      if (mounted) setState(() => _isListening = false);
       _speech.stop();
     }
   }
 
   void _updateLastUserMessage(String newMessage) {
     if (_chatMessages.isNotEmpty && _chatMessages.last['sender'] == 'user') {
-      setState(() {
-        _chatMessages[_chatMessages.length - 1]['message'] = newMessage;
-        _chatMessages[_chatMessages.length - 1]['isRecording'] = 'false';
-      });
+      if (mounted) {
+        setState(() {
+          _chatMessages[_chatMessages.length - 1]['message'] = newMessage;
+          _chatMessages[_chatMessages.length - 1]['isRecording'] = 'false';
+        });
+      }
       _saveChatMessages();
     }
   }
@@ -126,51 +155,79 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen> {
     String message, {
     bool isRecording = false,
   }) {
-    setState(() {
-      _chatMessages.add({
-        'sender': sender,
-        'message': isRecording ? "Recording..." : message,
-        'time': DateFormat('hh:mm a').format(DateTime.now()),
-        'isRecording': isRecording.toString(),
+    if (mounted) {
+      setState(() {
+        _chatMessages.add({
+          'sender': sender,
+          'message': isRecording ? "Recording..." : message,
+          'time': DateFormat('hh:mm a').format(DateTime.now()),
+          'isRecording': isRecording.toString(),
+        });
+        _scrollToBottom();
       });
-      _scrollToBottom();
-    });
+    }
     _saveChatMessages();
   }
 
-  // Save reminder to SharedPreferences
   Future<void> _saveReminder(String reminderText) async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     List<String> existingReminders = prefs.getStringList('reminders') ?? [];
-    // Save reminder with timestamp
+
+    final skipPhrases = [
+      "add reminder",
+      "set a reminder",
+      "remind me to",
+      "remind me",
+      "create reminder",
+      "schedule reminder",
+    ];
+
+    String cleaned = reminderText.toLowerCase();
+    for (final phrase in skipPhrases) {
+      if (cleaned.startsWith(phrase)) {
+        cleaned = cleaned.replaceFirst(phrase, '').trim();
+        break;
+      }
+    }
+
+    if (cleaned.isEmpty) {
+      cleaned = reminderText;
+    }
+
     final formattedTime = DateFormat('EEEE, h:mm a').format(DateTime.now());
-    final newReminder = jsonEncode({
-      'title': reminderText,
-      'time': formattedTime,
-    });
+    final newReminder = jsonEncode({'title': cleaned, 'time': formattedTime});
+
     existingReminders.add(newReminder);
     await prefs.setStringList('reminders', existingReminders);
-    debugPrint("📌 Reminder saved: $reminderText");
+
+    debugPrint("📌 Reminder saved: $cleaned");
   }
 
   Future<void> _predictIntent(String input) async {
     if (input.trim().isEmpty) return;
     try {
       var response = await _voiceAssistantService.predictIntent(input);
-      if (response['error'] == true) {
-        _addChatMessage(
-          'assistant',
-          response['message'] ?? "An unknown error occurred.",
-        );
-      } else {
-        _addChatMessage('assistant', response['response'] ?? "");
-        // Save reminder if intent is reminder
-        if (response['intent']?.toLowerCase() == 'reminder') {
-          await _saveReminder(input);
+      if (mounted) {
+        String assistantReply = response['response'] ?? "No response.";
+        if (response['error'] == true) {
+          _addChatMessage(
+            'assistant',
+            response['message'] ?? "An error occurred.",
+          );
+          await _speak(response['message'] ?? "An error occurred.");
+        } else {
+          _addChatMessage('assistant', assistantReply);
+          await _speak(assistantReply); // SPEAK THE RESPONSE
+          if (response['intent']?.toLowerCase() == 'reminder') {
+            await _saveReminder(input);
+          }
         }
       }
     } catch (e) {
-      _addChatMessage('assistant', "Error: $e");
+      if (mounted) {
+        _addChatMessage('assistant', "Error: $e");
+        await _speak("Sorry, there was an error.");
+      }
     }
   }
 
